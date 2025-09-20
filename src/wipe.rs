@@ -15,6 +15,7 @@ use std::{
 use crate::{
     algorithms::{get_algorithm_pass_count, get_pass_pattern, get_pattern_name, WipePattern},
     args::WipeAlgorithm,
+    progress::{emit_event, ProgressEvent},
 };
 
 #[cfg(unix)]
@@ -29,6 +30,7 @@ pub struct WipeContext {
     buffer_size: usize,
     algorithm: WipeAlgorithm,
     passes: usize,
+    json_mode: bool,
 }
 
 impl WipeContext {
@@ -37,6 +39,7 @@ impl WipeContext {
         algorithm: WipeAlgorithm,
         passes: usize,
         buffer_size: usize,
+        json_mode: bool,
     ) -> Result<Self> {
         let mut options = OpenOptions::new();
         options.write(true).read(true);
@@ -60,19 +63,29 @@ impl WipeContext {
             buffer_size,
             algorithm,
             passes,
+            json_mode,
         })
     }
 
     pub fn wipe(&mut self) -> Result<()> {
         let total_passes = get_algorithm_pass_count(&self.algorithm, self.passes);
 
-        println!(
-            "Starting secure wipe using {:?} algorithm ({} passes)",
-            self.algorithm, total_passes
-        );
-        println!("File size: {:.2} MB", self.size as f64 / 1_048_576.0);
-        println!("Buffer size: {} KB", self.buffer_size);
-        println!();
+        if self.json_mode {
+            let _ = emit_event(&ProgressEvent::Start {
+                algorithm: format!("{:?}", self.algorithm),
+                total_passes,
+                file_size_bytes: self.size,
+                buffer_size_kb: self.buffer_size,
+            });
+        } else {
+            println!(
+                "Starting secure wipe using {:?} algorithm ({} passes)",
+                self.algorithm, total_passes
+            );
+            println!("File size: {:.2} MB", self.size as f64 / 1_048_576.0);
+            println!("Buffer size: {} KB", self.buffer_size);
+            println!();
+        }
 
         let start_time = Instant::now();
 
@@ -84,12 +97,19 @@ impl WipeContext {
         let throughput =
             (self.size as f64 * total_passes as f64) / elapsed.as_secs_f64() / 1_048_576.0;
 
-        println!();
-        io::stdout().execute(SetForegroundColor(Color::Green))?;
-        println!("Secure wipe completed successfully!");
-        io::stdout().execute(ResetColor)?;
-        println!("Total time: {:.2} seconds", elapsed.as_secs_f64());
-        println!("Average throughput: {:.2} MB/s", throughput);
+        if self.json_mode {
+            let _ = emit_event(&ProgressEvent::Complete {
+                total_time_seconds: elapsed.as_secs_f64(),
+                average_throughput_mb_s: throughput,
+            });
+        } else {
+            println!();
+            io::stdout().execute(SetForegroundColor(Color::Green))?;
+            println!("Secure wipe completed successfully!");
+            io::stdout().execute(ResetColor)?;
+            println!("Total time: {:.2} seconds", elapsed.as_secs_f64());
+            println!("Average throughput: {:.2} MB/s", throughput);
+        }
 
         Ok(())
     }
@@ -102,19 +122,34 @@ impl WipeContext {
         let pattern = get_pass_pattern(&self.algorithm, pass);
         let pattern_name = get_pattern_name(&self.algorithm, pass);
 
-        let pb = ProgressBar::new(self.size);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(&format!(
-                    "Pass {}/{} [{}] {{bar:40.cyan/blue}} {{bytes}}/{{total_bytes}} ({{bytes_per_sec}}) {{msg}}",
-                    pass, total_passes, pattern_name
-                ))?
-                .progress_chars("█▉▊▋▌▍▎▏  "),
-        );
+        if self.json_mode {
+            let _ = emit_event(&ProgressEvent::PassStart {
+                pass,
+                total_passes,
+                pattern: pattern_name.to_string(),
+            });
+        }
+
+        let pb = if !self.json_mode {
+            let pb = ProgressBar::new(self.size);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template(&format!(
+                        "Pass {}/{} [{}] {{bar:40.cyan/blue}} {{bytes}}/{{total_bytes}} ({{bytes_per_sec}}) {{msg}}",
+                        pass, total_passes, pattern_name
+                    ))?
+                    .progress_chars("█▉▊▋▌▍▎▏  "),
+            );
+            Some(pb)
+        } else {
+            None
+        };
 
         let mut buffer = vec![0u8; self.buffer_size * 1024];
         let mut total_written = 0u64;
         let mut writer = BufWriter::new(&mut self.file);
+        let mut last_progress_time = Instant::now();
+        let mut last_bytes = 0u64;
 
         while total_written < self.size {
             let write_size = std::cmp::min(buffer.len(), (self.size - total_written) as usize);
@@ -139,10 +174,42 @@ impl WipeContext {
                 .with_context(|| "Failed to write data")?;
 
             total_written += write_size as u64;
-            pb.set_position(total_written);
 
-            // Add small delay for demo visualization
-            std::thread::sleep(Duration::from_millis(1));
+            // Update progress
+            if let Some(ref pb) = pb {
+                pb.set_position(total_written);
+            }
+
+            // Emit JSON progress events periodically
+            if self.json_mode {
+                let now = Instant::now();
+                if now.duration_since(last_progress_time) >= Duration::from_millis(100) {
+                    let elapsed = now.duration_since(last_progress_time);
+                    let bytes_diff = total_written - last_bytes;
+                    let bytes_per_second = if elapsed.as_secs_f64() > 0.0 {
+                        bytes_diff as f64 / elapsed.as_secs_f64()
+                    } else {
+                        0.0
+                    };
+
+                    let _ = emit_event(&ProgressEvent::Progress {
+                        pass,
+                        total_passes,
+                        bytes_written: total_written,
+                        total_bytes: self.size,
+                        percent: (total_written as f64 / self.size as f64) * 100.0,
+                        bytes_per_second,
+                    });
+
+                    last_progress_time = now;
+                    last_bytes = total_written;
+                }
+            }
+
+            // Add small delay for demo visualization (only in non-JSON mode)
+            if !self.json_mode {
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
 
         writer.flush().with_context(|| "Failed to flush buffer")?;
@@ -152,7 +219,14 @@ impl WipeContext {
             libc::fsync(writer.get_ref().as_raw_fd());
         }
 
-        pb.finish_with_message("Completed");
+        if let Some(pb) = pb {
+            pb.finish_with_message("Completed");
+        }
+
+        if self.json_mode {
+            let _ = emit_event(&ProgressEvent::PassComplete { pass, total_passes });
+        }
+
         Ok(())
     }
 }

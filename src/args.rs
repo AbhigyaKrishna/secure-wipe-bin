@@ -19,9 +19,9 @@ pub enum WipeAlgorithm {
 #[command(name = "secure-wipe")]
 #[command(about = "Secure file/device wiping utility with real-time visualization")]
 pub struct Args {
-    /// Target file or device to wipe
+    /// Target file or device to wipe (optional in demo mode)
     #[arg(short, long)]
-    pub target: PathBuf,
+    pub target: Option<PathBuf>,
 
     /// Wiping algorithm to use
     #[arg(short, long, value_enum, default_value_t = WipeAlgorithm::Random)]
@@ -50,4 +50,8 @@ pub struct Args {
     /// Verify wipe by reading back data
     #[arg(short, long)]
     pub verify: bool,
+
+    /// Output machine-readable JSON for subprocess integration
+    #[arg(long)]
+    pub json: bool,
 }

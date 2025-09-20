@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod algorithms;
 mod args;
 mod demo;
+mod progress;
 mod ui;
 mod wipe;
 
@@ -16,13 +17,19 @@ use wipe::WipeContext;
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    // Validate arguments
+    if !args.demo && args.target.is_none() {
+        anyhow::bail!(
+            "Target file must be specified when not in demo mode. Use --target <PATH> or --demo"
+        );
+    }
+
     let target_path = if args.demo {
         let demo_path = PathBuf::from(format!("/tmp/secure_wipe_demo_{}.img", std::process::id()));
-
-        create_demo_file(&demo_path, args.demo_size)?;
+        create_demo_file(&demo_path, args.demo_size, args.json)?;
         demo_path
     } else {
-        args.target.clone()
+        args.target.unwrap() // Safe to unwrap because we validated above
     };
 
     if !target_path.exists() && !args.demo {
@@ -34,8 +41,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut wipe_context =
-        WipeContext::new(&target_path, args.algorithm, args.passes, args.buffer_size)?;
+    let mut wipe_context = WipeContext::new(
+        &target_path,
+        args.algorithm,
+        args.passes,
+        args.buffer_size,
+        args.json,
+    )?;
 
     wipe_context.wipe()?;
 
@@ -56,13 +68,13 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use crate::args::WipeAlgorithm;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_demo_file_creation() {
         let temp_file = NamedTempFile::new().unwrap();
-        let result = create_demo_file(temp_file.path(), 1);
+        let result = create_demo_file(temp_file.path(), 1, false);
         assert!(result.is_ok());
     }
 
@@ -71,7 +83,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         std::fs::write(temp_file.path(), b"test data").unwrap();
 
-        let result = WipeContext::new(temp_file.path(), WipeAlgorithm::Zero, 1, 1024);
+        let result = WipeContext::new(temp_file.path(), WipeAlgorithm::Zero, 1, 1024, false);
         assert!(result.is_ok());
     }
 }
