@@ -24,6 +24,19 @@ use std::os::unix::fs::OpenOptionsExt;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(windows)]
+use winapi::{
+    shared::minwindef::{DWORD, LPVOID},
+    um::{
+        handleapi::INVALID_HANDLE_VALUE,
+        ioapiset::DeviceIoControl,
+        winioctl::{DISK_GEOMETRY_EX, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX},
+    },
+};
+
 pub struct WipeContext {
     file: File,
     size: u64,
@@ -53,7 +66,7 @@ impl WipeContext {
             .open(path)
             .with_context(|| format!("Failed to open file or device: {}", path.display()))?;
 
-        // For block devices, get size using ioctl (Linux only)
+        // For block devices, get size using platform-specific methods
         let size = if is_block_device {
             #[cfg(unix)]
             {
@@ -69,10 +82,35 @@ impl WipeContext {
                     }
                 }
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                use std::os::windows::io::AsRawHandle;
+                let handle = file.as_raw_handle();
+                let mut geometry: DISK_GEOMETRY_EX = unsafe { std::mem::zeroed() };
+                let mut bytes_returned: DWORD = 0;
+
+                unsafe {
+                    if DeviceIoControl(
+                        handle,
+                        IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
+                        std::ptr::null_mut(),
+                        0,
+                        &mut geometry as *mut _ as LPVOID,
+                        std::mem::size_of::<DISK_GEOMETRY_EX>() as DWORD,
+                        &mut bytes_returned,
+                        std::ptr::null_mut(),
+                    ) != 0
+                    {
+                        geometry.DiskSize as u64
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to get Windows disk size"));
+                    }
+                }
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 return Err(anyhow::anyhow!(
-                    "Block device wiping is only supported on Unix"
+                    "Block device wiping is not supported on this platform"
                 ));
             }
         } else {
@@ -240,9 +278,23 @@ impl WipeContext {
 
         writer.flush().with_context(|| "Failed to flush buffer")?;
 
+        // Platform-specific sync operations
         #[cfg(unix)]
         unsafe {
             libc::fsync(writer.get_ref().as_raw_fd());
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use winapi::um::{fileapi::FlushFileBuffers, handleapi::INVALID_HANDLE_VALUE};
+
+            unsafe {
+                let handle = writer.get_ref().as_raw_handle();
+                if handle != INVALID_HANDLE_VALUE {
+                    FlushFileBuffers(handle);
+                }
+            }
         }
 
         if let Some(pb) = pb {

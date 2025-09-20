@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod algorithms;
 mod args;
 mod demo;
+mod platform;
 mod progress;
 mod ui;
 mod wipe;
@@ -32,17 +33,25 @@ fn main() -> Result<()> {
         args.target.clone().unwrap() // Safe to unwrap because we validated above
     };
 
-    // Check if target is a block device (Linux only)
-    #[cfg(unix)]
+    // Check if target is a block device (platform-specific)
     let is_block_device = {
-        use std::os::unix::fs::FileTypeExt;
-        match std::fs::metadata(&target_path) {
-            Ok(meta) => meta.file_type().is_block_device(),
-            Err(_) => false,
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            match std::fs::metadata(&target_path) {
+                Ok(meta) => meta.file_type().is_block_device(),
+                Err(_) => false,
+            }
+        }
+        #[cfg(windows)]
+        {
+            platform::windows::is_windows_device_path(&target_path)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            false
         }
     };
-    #[cfg(not(unix))]
-    let is_block_device = false;
 
     if !target_path.exists() && !args.demo && !is_block_device {
         anyhow::bail!(

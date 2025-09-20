@@ -50,7 +50,9 @@ The binary will be available at `./target/release/secure-wipe-bin`.
 
 ### Partition Wiping
 
-**⚠️ WARNING: Partition wiping is irreversible and requires root privileges!**
+**⚠️ WARNING: Partition wiping is irreversible and requires elevated privileges!**
+
+#### Linux/Unix
 
 ```bash
 # Wipe an entire partition (DANGEROUS!)
@@ -62,6 +64,20 @@ sudo fdisk -l
 
 # Always unmount before wiping
 sudo umount /dev/sda1
+```
+
+#### Windows
+
+```cmd
+# Run as Administrator
+# Wipe entire physical drive (EXTREMELY DANGEROUS!)
+.\secure-wipe-bin.exe --target \\.\PhysicalDrive1 --algorithm dod5220 --force
+
+# Wipe logical drive/partition
+.\secure-wipe-bin.exe --target \\.\E: --algorithm random --force
+
+# List available drives first
+.\list-drives.exe
 ```
 
 ### Demo Mode
@@ -202,7 +218,15 @@ The codebase is split into focused modules:
 
 - **Linux**: Full support for files and block devices
 - **macOS**: File support, limited block device support
-- **Windows**: File support only (no block device support)
+- **Windows**: Full support for files and disk/partition wiping (requires Administrator privileges)
+
+### Windows Device Paths
+
+- **Physical drives**: `\\.\PhysicalDrive0`, `\\.\PhysicalDrive1`, etc.
+- **Logical drives**: `\\.\C:`, `\\.\D:`, etc.
+- Use the `list-drives` utility to enumerate available devices
+
+See [WINDOWS_SUPPORT.md](WINDOWS_SUPPORT.md) for detailed Windows-specific documentation.
 
 ## Contributing
 

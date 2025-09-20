@@ -10,8 +10,12 @@ To enable JSON output mode, use the `--json` flag:
 # Wipe a file
 ./secure-wipe-bin --json --target /path/to/file --algorithm dod5220 --force
 
-# Wipe a partition (requires root privileges)
+# Wipe a partition (Unix - requires root privileges)
 sudo ./secure-wipe-bin --json --target /dev/sda1 --algorithm gutmann --force
+
+# Wipe a partition (Windows - requires Administrator privileges)
+.\secure-wipe-bin.exe --json --target \\.\PhysicalDrive0 --algorithm dod5220 --force
+.\secure-wipe-bin.exe --json --target \\.\C: --algorithm random --force
 
 # Demo mode (creates temporary file)
 ./secure-wipe-bin --json --demo --demo-size 100 --algorithm random --force
