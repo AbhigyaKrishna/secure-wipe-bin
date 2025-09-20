@@ -24,14 +24,11 @@ use std::os::unix::fs::OpenOptionsExt;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
 
 #[cfg(windows)]
 use winapi::{
     shared::minwindef::{DWORD, LPVOID},
     um::{
-        handleapi::INVALID_HANDLE_VALUE,
         ioapiset::DeviceIoControl,
         winioctl::{DISK_GEOMETRY_EX, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX},
     },
@@ -91,8 +88,9 @@ impl WipeContext {
                 let mut bytes_returned: DWORD = 0;
 
                 unsafe {
+                    use winapi::ctypes::c_void;
                     if DeviceIoControl(
-                        handle,
+                        handle as *mut c_void,
                         IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
                         std::ptr::null_mut(),
                         0,
@@ -102,7 +100,9 @@ impl WipeContext {
                         std::ptr::null_mut(),
                     ) != 0
                     {
-                        geometry.DiskSize as u64
+                        // Convert LARGE_INTEGER to u64 properly
+                        let size = *geometry.DiskSize.QuadPart();
+                        size as u64
                     } else {
                         return Err(anyhow::anyhow!("Failed to get Windows disk size"));
                     }
@@ -291,8 +291,9 @@ impl WipeContext {
             use winapi::um::{fileapi::FlushFileBuffers, handleapi::INVALID_HANDLE_VALUE};
 
             unsafe {
-                let handle = writer.get_ref().as_raw_handle();
-                if handle != INVALID_HANDLE_VALUE {
+                use winapi::ctypes::c_void;
+                let handle = writer.get_ref().as_raw_handle() as *mut c_void;
+                if handle != INVALID_HANDLE_VALUE as *mut c_void {
                     FlushFileBuffers(handle);
                 }
             }

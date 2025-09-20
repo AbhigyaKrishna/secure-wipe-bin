@@ -217,7 +217,7 @@ fn get_windows_physical_drives() -> Result<Vec<DriveInfo>> {
                 CloseHandle(handle);
 
                 if success != 0 {
-                    let size_bytes = geometry.DiskSize as u64;
+                    let size_bytes = *geometry.DiskSize.QuadPart() as u64;
                     let size_gb = size_bytes as f64 / 1_073_741_824.0;
 
                     drives.push(DriveInfo {

@@ -1,16 +1,14 @@
 /// Windows-specific utilities for disk and partition handling
 #[cfg(windows)]
 pub mod windows {
-    use anyhow::{Context, Result};
+    use anyhow::Result;
     use std::path::Path;
     use winapi::{
-        shared::minwindef::{DWORD, FALSE, LPVOID, TRUE},
+        shared::minwindef::{DWORD, LPVOID},
         um::{
-            errhandlingapi::GetLastError,
             fileapi::{CreateFileW, OPEN_EXISTING},
             handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
-            winbase::{FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH},
-            winnt::{FILE_ATTRIBUTE_NORMAL, GENERIC_READ, GENERIC_WRITE, HANDLE},
+            winnt::{FILE_ATTRIBUTE_NORMAL, GENERIC_READ},
         },
     };
 
@@ -151,8 +149,8 @@ pub mod windows {
 
             Ok(DriveInfo {
                 path: drive_path.to_string(),
-                size_bytes: geometry.DiskSize as u64,
-                cylinders: geometry.Geometry.Cylinders as u64,
+                size_bytes: *geometry.DiskSize.QuadPart() as u64,
+                cylinders: *geometry.Geometry.Cylinders.QuadPart() as u64,
                 sectors_per_track: geometry.Geometry.SectorsPerTrack,
                 bytes_per_sector: geometry.Geometry.BytesPerSector,
             })

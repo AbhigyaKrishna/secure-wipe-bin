@@ -122,7 +122,8 @@ pub fn create_demo_file(path: &Path, size_mb: u64, json_mode: bool) -> Result<()
         use winapi::um::fileapi::FlushFileBuffers;
 
         unsafe {
-            FlushFileBuffers(writer.get_ref().as_raw_handle());
+            use winapi::ctypes::c_void;
+            FlushFileBuffers(writer.get_ref().as_raw_handle() as *mut c_void);
         }
     }
 
