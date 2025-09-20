@@ -31,6 +31,7 @@ pub struct WipeContext {
     algorithm: WipeAlgorithm,
     passes: usize,
     json_mode: bool,
+    is_block_device: bool,
 }
 
 impl WipeContext {
@@ -40,6 +41,7 @@ impl WipeContext {
         passes: usize,
         buffer_size: usize,
         json_mode: bool,
+        is_block_device: bool,
     ) -> Result<Self> {
         let mut options = OpenOptions::new();
         options.write(true).read(true);
@@ -49,13 +51,36 @@ impl WipeContext {
 
         let file = options
             .open(path)
-            .with_context(|| format!("Failed to open file: {}", path.display()))?;
+            .with_context(|| format!("Failed to open file or device: {}", path.display()))?;
 
-        let metadata = file
-            .metadata()
-            .with_context(|| "Failed to get file metadata")?;
-
-        let size = metadata.len();
+        // For block devices, get size using ioctl (Linux only)
+        let size = if is_block_device {
+            #[cfg(unix)]
+            {
+                use std::os::unix::io::AsRawFd;
+                let fd = file.as_raw_fd();
+                let mut size: u64 = 0;
+                unsafe {
+                    // BLKGETSIZE64 ioctl
+                    if libc::ioctl(fd, 0x80081272, &mut size) == 0 {
+                        size
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to get block device size"));
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                return Err(anyhow::anyhow!(
+                    "Block device wiping is only supported on Unix"
+                ));
+            }
+        } else {
+            let metadata = file
+                .metadata()
+                .with_context(|| "Failed to get file metadata")?;
+            metadata.len()
+        };
 
         Ok(WipeContext {
             file,
@@ -64,6 +89,7 @@ impl WipeContext {
             algorithm,
             passes,
             json_mode,
+            is_block_device,
         })
     }
 

@@ -29,11 +29,26 @@ fn main() -> Result<()> {
         create_demo_file(&demo_path, args.demo_size, args.json)?;
         demo_path
     } else {
-        args.target.unwrap() // Safe to unwrap because we validated above
+        args.target.clone().unwrap() // Safe to unwrap because we validated above
     };
 
-    if !target_path.exists() && !args.demo {
-        anyhow::bail!("Target file does not exist: {}", target_path.display());
+    // Check if target is a block device (Linux only)
+    #[cfg(unix)]
+    let is_block_device = {
+        use std::os::unix::fs::FileTypeExt;
+        match std::fs::metadata(&target_path) {
+            Ok(meta) => meta.file_type().is_block_device(),
+            Err(_) => false,
+        }
+    };
+    #[cfg(not(unix))]
+    let is_block_device = false;
+
+    if !target_path.exists() && !args.demo && !is_block_device {
+        anyhow::bail!(
+            "Target file or device does not exist: {}",
+            target_path.display()
+        );
     }
 
     if !args.force && !confirm_wipe(&target_path, args.demo)? {
@@ -47,6 +62,7 @@ fn main() -> Result<()> {
         args.passes,
         args.buffer_size,
         args.json,
+        is_block_device,
     )?;
 
     wipe_context.wipe()?;
@@ -83,7 +99,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         std::fs::write(temp_file.path(), b"test data").unwrap();
 
-        let result = WipeContext::new(temp_file.path(), WipeAlgorithm::Zero, 1, 1024, false);
+        let result = WipeContext::new(temp_file.path(), WipeAlgorithm::Zero, 1, 1024, false, false);
         assert!(result.is_ok());
     }
 }

@@ -19,7 +19,7 @@ pub enum WipeAlgorithm {
 #[command(name = "secure-wipe")]
 #[command(about = "Secure file/device wiping utility with real-time visualization")]
 pub struct Args {
-    /// Target file or device to wipe (optional in demo mode)
+    /// Target file or block device/partition to wipe (e.g. /dev/sda1, /dev/nvme0n1p1, or a file path). Optional in demo mode.
     #[arg(short, long)]
     pub target: Option<PathBuf>,
 

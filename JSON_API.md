@@ -1,13 +1,20 @@
 # JSON API Documentation for Electron Integration
 
-This document describes the JSON API for integrating the secure-wipe utility as a subprocess in Electron applications.
+This document describes the JSON API for integrating the secure-wipe utility as a subprocess in Electron applications. The utility supports wiping both files and block devices (partitions).
 
 ## Command Line Usage
 
 To enable JSON output mode, use the `--json` flag:
 
 ```bash
+# Wipe a file
 ./secure-wipe-bin --json --target /path/to/file --algorithm dod5220 --force
+
+# Wipe a partition (requires root privileges)
+sudo ./secure-wipe-bin --json --target /dev/sda1 --algorithm gutmann --force
+
+# Demo mode (creates temporary file)
+./secure-wipe-bin --json --demo --demo-size 100 --algorithm random --force
 ```
 
 ## JSON Event Types
@@ -161,6 +168,10 @@ When integrating with Electron:
 3. **Consider sandboxing** the secure-wipe process
 4. **Validate file paths** to prevent unauthorized access
 5. **Log operations** for audit trails
+6. **Partition wiping requires elevated privileges** - ensure proper permission handling
+7. **Block device detection** - verify the target is the intended device before wiping
+8. **Unmount partitions** before wiping to prevent data corruption
+9. **Double-check device paths** - wiping the wrong partition is irreversible
 
 ## Example Integration in Electron Main Process
 
