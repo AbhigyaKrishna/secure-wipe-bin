@@ -80,6 +80,16 @@ sudo umount /dev/sda1
 .\list-drives.exe
 ```
 
+### List Available Drives
+
+```bash
+# List drives in human-readable format
+./secure-wipe-bin --list-drives
+
+# List drives in JSON format (for programmatic use)
+./secure-wipe-bin --list-drives --json
+```
+
 ### Demo Mode
 
 Test the utility safely with temporary files:
@@ -108,7 +118,7 @@ sudo ./secure-wipe-bin --json --target /dev/sda1 --algorithm random --force
 Usage: secure-wipe-bin [OPTIONS]
 
 Options:
-  -t, --target <TARGET>              Target file or block device/partition to wipe (e.g. /dev/sda1, /dev/nvme0n1p1, or a file path). Optional in demo mode.
+  -t, --target <TARGET>              Target file or block device/partition to wipe (Unix: /dev/sda1, Windows: \\\\.\\.\PhysicalDrive0 or \\\\.\\.\C:). Optional in demo mode.
   -a, --algorithm <ALGORITHM>        Wiping algorithm to use [default: random] [possible values: zero, random, dod5220, gutmann, custom]
   -p, --passes <PASSES>              Number of passes (for custom algorithm) [default: 3]
   -d, --demo                         Demo mode - creates and wipes test file safely
@@ -117,6 +127,7 @@ Options:
   -f, --force                        Force wipe without confirmation (dangerous!)
   -v, --verify                       Verify wipe by reading back data (not yet implemented)
       --json                         Output machine-readable JSON for subprocess integration
+  -l, --list-drives                  List available drives and partitions instead of wiping
   -h, --help                         Print help
 ```
 

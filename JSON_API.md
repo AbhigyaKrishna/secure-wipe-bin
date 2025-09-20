@@ -17,8 +17,44 @@ sudo ./secure-wipe-bin --json --target /dev/sda1 --algorithm gutmann --force
 .\secure-wipe-bin.exe --json --target \\.\PhysicalDrive0 --algorithm dod5220 --force
 .\secure-wipe-bin.exe --json --target \\.\C: --algorithm random --force
 
+# List available drives in JSON format
+./secure-wipe-bin --list-drives --json
+
 # Demo mode (creates temporary file)
 ./secure-wipe-bin --json --demo --demo-size 100 --algorithm random --force
+```
+
+## Drive Listing
+
+The `--list-drives` flag can be combined with `--json` to get machine-readable drive information:
+
+```bash
+# Get drive list in JSON format
+./secure-wipe-bin --list-drives --json
+```
+
+### Drive List JSON Output
+
+```json
+{
+  "type": "drive_list",
+  "drives": [
+    {
+      "path": "/dev/sda",
+      "drive_type": "disk",
+      "size_bytes": 1000204886016,
+      "size_gb": 931.5,
+      "description": "/dev/sda - disk 931.5G"
+    },
+    {
+      "path": "/dev/sda1",
+      "drive_type": "part",
+      "size_bytes": null,
+      "size_gb": 100.0,
+      "description": "/dev/sda1 - part 100G"
+    }
+  ]
+}
 ```
 
 ## JSON Event Types

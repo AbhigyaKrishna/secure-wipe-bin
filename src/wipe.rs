@@ -44,6 +44,7 @@ pub struct WipeContext {
     algorithm: WipeAlgorithm,
     passes: usize,
     json_mode: bool,
+    #[allow(dead_code)]
     is_block_device: bool,
 }
 

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod algorithms;
 mod args;
 mod demo;
+mod drives;
 mod platform;
 mod progress;
 mod ui;
@@ -12,13 +13,19 @@ mod wipe;
 
 use args::Args;
 use demo::create_demo_file;
+use drives::list_drives;
 use ui::confirm_wipe;
 use wipe::WipeContext;
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Validate arguments
+    // Handle list drives command
+    if args.list_drives {
+        return list_drives(args.json);
+    }
+
+    // Validate arguments for wiping operations
     if !args.demo && args.target.is_none() {
         anyhow::bail!(
             "Target file must be specified when not in demo mode. Use --target <PATH> or --demo"
