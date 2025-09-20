@@ -33,7 +33,8 @@ fn main() -> Result<()> {
     }
 
     let target_path = if args.demo {
-        let demo_path = PathBuf::from(format!("/tmp/secure_wipe_demo_{}.img", std::process::id()));
+        let demo_path =
+            std::env::temp_dir().join(format!("secure_wipe_demo_{}.img", std::process::id()));
         create_demo_file(&demo_path, args.demo_size, args.json)?;
         demo_path
     } else {
