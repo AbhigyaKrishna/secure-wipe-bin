@@ -271,7 +271,69 @@ fn get_cpu_info() -> Result<CpuInfo> {
         })
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let model_name = Command::new("wmic")
+            .args(&["cpu", "get", "name", "/value"])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|s| {
+                for line in s.lines() {
+                    if line.starts_with("Name=") {
+                        return Some(line.strip_prefix("Name=").unwrap_or("").trim().to_string());
+                    }
+                }
+                None
+            });
+
+        let physical_cores = Command::new("wmic")
+            .args(&["cpu", "get", "NumberOfCores", "/value"])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|s| {
+                for line in s.lines() {
+                    if line.starts_with("NumberOfCores=") {
+                        return line.strip_prefix("NumberOfCores=")
+                            .unwrap_or("")
+                            .trim()
+                            .parse()
+                            .ok();
+                    }
+                }
+                None
+            });
+
+        let frequency_mhz = Command::new("wmic")
+            .args(&["cpu", "get", "MaxClockSpeed", "/value"])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|s| {
+                for line in s.lines() {
+                    if line.starts_with("MaxClockSpeed=") {
+                        return line.strip_prefix("MaxClockSpeed=")
+                            .unwrap_or("")
+                            .trim()
+                            .parse()
+                            .ok();
+                    }
+                }
+                None
+            });
+
+        Ok(CpuInfo {
+            logical_cores,
+            physical_cores,
+            model_name,
+            frequency_mhz,
+        })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         Ok(CpuInfo {
             logical_cores,
@@ -328,7 +390,25 @@ fn get_memory_info() -> (Option<u64>, Option<u64>) {
         (total_bytes, None)
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "windows")]
+    {
+        use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+        unsafe {
+            let mut mem_status: MEMORYSTATUSEX = std::mem::zeroed();
+            mem_status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+
+            if GlobalMemoryStatusEx(&mut mem_status) != 0 {
+                let total_bytes = mem_status.ullTotalPhys;
+                let available_bytes = mem_status.ullAvailPhys;
+                (Some(total_bytes), Some(available_bytes))
+            } else {
+                (None, None)
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         (None, None)
     }
