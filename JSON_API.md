@@ -90,7 +90,7 @@ Emitted when a new wiping pass begins.
 
 ### Progress Event
 
-Emitted periodically during wiping (approximately every 100ms).
+Emitted periodically during wiping (intervals optimized based on mode: 200ms for UI, 500ms for JSON, 2s for fast mode).
 
 ```json
 {
@@ -182,8 +182,8 @@ See `example-electron-integration.js` for a complete Node.js example showing how
 1. Spawn the secure-wipe process
 2. Parse JSON events from stdout
 3. Handle progress updates
-4. Manage process lifecycle
-5. Handle errors appropriately
+4. Handle errors appropriately
+5. Manage process lifecycle
 
 ## Error Handling
 
@@ -195,9 +195,12 @@ Always check both the exit code and listen for error events in the JSON stream.
 
 ## Performance Considerations
 
-- Progress events are throttled to ~100ms intervals to avoid overwhelming the parent process
+- Progress events are throttled to optimize performance (200ms intervals for UI mode, 500ms for JSON mode, 2s for fast mode)
 - In JSON mode, terminal progress bars are disabled for better performance
 - Buffer size can be adjusted with `--buffer-size` for optimal throughput
+- Larger buffer sizes (4-64MB) are automatically selected based on available system memory and device type
+- Direct I/O is used instead of buffered writes for maximum performance
+- Synchronization is performed only at the end of each pass, not during writes
 
 ## Security Notes
 

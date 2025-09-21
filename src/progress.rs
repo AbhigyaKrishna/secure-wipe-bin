@@ -27,24 +27,16 @@ pub enum ProgressEvent {
         bytes_per_second: f64,
     },
     #[serde(rename = "pass_complete")]
-    PassComplete {
-        pass: usize,
-        total_passes: usize,
-    },
+    PassComplete { pass: usize, total_passes: usize },
     #[serde(rename = "complete")]
     Complete {
         total_time_seconds: f64,
         average_throughput_mb_s: f64,
     },
     #[serde(rename = "error")]
-    Error {
-        message: String,
-    },
+    Error { message: String },
     #[serde(rename = "demo_file_created")]
-    DemoFileCreated {
-        path: String,
-        size_mb: u64,
-    },
+    DemoFileCreated { path: String, size_mb: u64 },
     #[serde(rename = "demo_file_creating")]
     DemoFileCreating {
         bytes_written: u64,
@@ -52,16 +44,7 @@ pub enum ProgressEvent {
         percent: f64,
     },
     #[serde(rename = "info")]
-    Info {
-        message: String,
-    },
-    #[serde(rename = "interrupted")]
-    Interrupted {
-        message: String,
-        pass: Option<usize>,
-        total_passes: Option<usize>,
-        percent_complete: Option<f64>,
-    },
+    Info { message: String },
 }
 
 pub fn emit_event(event: &ProgressEvent) -> io::Result<()> {
@@ -69,18 +52,4 @@ pub fn emit_event(event: &ProgressEvent) -> io::Result<()> {
     println!("{}", json);
     io::stdout().flush()?;
     Ok(())
-}
-
-pub fn emit_error(message: &str) -> io::Result<()> {
-    let event = ProgressEvent::Error {
-        message: message.to_string(),
-    };
-    emit_event(&event)
-}
-
-pub fn emit_info(message: &str) -> io::Result<()> {
-    let event = ProgressEvent::Info {
-        message: message.to_string(),
-    };
-    emit_event(&event)
 }
