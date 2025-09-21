@@ -7,12 +7,14 @@ mod demo;
 mod drives;
 mod platform;
 mod progress;
+mod system;
 mod ui;
 mod wipe;
 
 use args::Args;
 use demo::create_demo_file;
 use drives::list_drives;
+use system::{display_system_info, get_system_info};
 use ui::confirm_wipe;
 use wipe::WipeContext;
 
@@ -22,6 +24,12 @@ fn main() -> Result<()> {
     // Handle list drives command
     if args.list_drives {
         return list_drives(args.json);
+    }
+
+    // Handle system info command
+    if args.system_info {
+        let system_info = get_system_info().context("Failed to gather system information")?;
+        return display_system_info(&system_info, args.json);
     }
 
     // Validate arguments for wiping operations

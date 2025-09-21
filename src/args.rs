@@ -62,4 +62,8 @@ pub struct Args {
     /// List available drives and partitions instead of wiping
     #[arg(short, long)]
     pub list_drives: bool,
+
+    /// Show system information (OS, architecture, memory, etc.)
+    #[arg(short = 's', long)]
+    pub system_info: bool,
 }

@@ -111,6 +111,7 @@ pub struct WipeContext {
     passes: usize,
     json_mode: bool,
     fast_mode: bool,
+    #[allow(dead_code)]
     is_block_device: bool,
     // Pre-allocated reusable buffer to avoid repeated allocations
     write_buffer: Vec<u8>,
