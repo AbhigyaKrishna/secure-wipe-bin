@@ -7,7 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rand::{thread_rng, RngCore};
 use std::{
     fs::{File, OpenOptions},
-    io::{self, BufWriter, Seek, SeekFrom, Write},
+    io::{self, Seek, SeekFrom, Write},
     path::Path,
     time::{Duration, Instant},
 };
@@ -34,15 +34,15 @@ fn get_optimal_buffer_size(is_block_device: bool, requested_size: usize) -> usiz
     // Try to determine available system memory
     let system_memory_kb = get_available_memory_kb().unwrap_or(8 * 1024 * 1024); // Default to 8GB
 
-    // Calculate optimal buffer size
+    // Calculate optimal buffer size - be more aggressive for better performance
     let optimal_kb = if is_block_device {
-        // For block devices, use larger buffers (2-16MB)
-        let max_buffer = std::cmp::min(16 * 1024, system_memory_kb / 100); // Max 16MB or 1% of system memory
-        std::cmp::max(2 * 1024, max_buffer) // Min 2MB
+        // For block devices, use larger buffers (8-64MB) for maximum throughput
+        let max_buffer = std::cmp::min(64 * 1024, system_memory_kb / 50); // Max 64MB or 2% of system memory
+        std::cmp::max(8 * 1024, max_buffer) // Min 8MB
     } else {
-        // For files, use moderate buffers (1-8MB)
-        let max_buffer = std::cmp::min(8 * 1024, system_memory_kb / 200); // Max 8MB or 0.5% of system memory
-        std::cmp::max(1024, max_buffer) // Min 1MB
+        // For files, use moderate buffers (4-32MB)
+        let max_buffer = std::cmp::min(32 * 1024, system_memory_kb / 100); // Max 32MB or 1% of system memory
+        std::cmp::max(4 * 1024, max_buffer) // Min 4MB
     };
 
     optimal_kb
@@ -111,8 +111,9 @@ pub struct WipeContext {
     passes: usize,
     json_mode: bool,
     fast_mode: bool,
-    #[allow(dead_code)]
     is_block_device: bool,
+    // Pre-allocated reusable buffer to avoid repeated allocations
+    write_buffer: Vec<u8>,
 }
 
 impl WipeContext {
@@ -130,16 +131,13 @@ impl WipeContext {
 
         #[cfg(unix)]
         {
-            let mut flags = 0;
-            if !fast_mode {
-                flags |= libc::O_SYNC; // Force synchronous writes unless in fast mode
+            // Only use O_SYNC for block devices in non-fast mode for data integrity
+            // Remove O_SYNC for files to improve performance - we'll sync at the end of each pass
+            if is_block_device && !fast_mode {
+                options.custom_flags(libc::O_SYNC);
             }
-            if is_block_device {
-                flags |= libc::O_DIRECT; // Use direct I/O for block devices
-            }
-            if flags != 0 {
-                options.custom_flags(flags);
-            }
+            // Consider O_DIRECT for block devices if buffer alignment is handled properly
+            // This would bypass the kernel page cache for better performance with large sequential writes
         }
 
         let file = options
@@ -206,6 +204,9 @@ impl WipeContext {
             metadata.len()
         };
 
+        // Pre-allocate buffer once to avoid repeated allocations during wiping
+        let write_buffer = vec![0u8; optimal_buffer_size * 1024];
+
         Ok(WipeContext {
             file,
             size,
@@ -215,6 +216,7 @@ impl WipeContext {
             json_mode,
             fast_mode,
             is_block_device,
+            write_buffer,
         })
     }
 
@@ -296,51 +298,73 @@ impl WipeContext {
             None
         };
 
-        let mut buffer = vec![0u8; self.buffer_size * 1024];
-        let mut total_written = 0u64;
-        let mut writer = BufWriter::new(&mut self.file);
-        let mut last_progress_time = Instant::now();
-        let mut last_bytes = 0u64;
-
-        while total_written < self.size {
-            let write_size = std::cmp::min(buffer.len(), (self.size - total_written) as usize);
-
-            match &pattern {
-                WipePattern::Fixed(byte) => buffer[..write_size].fill(*byte),
-                WipePattern::Random => thread_rng().fill_bytes(&mut buffer[..write_size]),
-                WipePattern::Gutmann(patterns) => {
-                    let pattern_idx = (pass - 1) % patterns.len();
-                    if patterns[pattern_idx].len() == 1 {
-                        buffer[..write_size].fill(patterns[pattern_idx][0]);
-                    } else {
-                        for (i, byte) in buffer[..write_size].iter_mut().enumerate() {
-                            *byte = patterns[pattern_idx][i % patterns[pattern_idx].len()];
-                        }
+        // Pre-fill buffer with pattern to avoid repeated pattern generation
+        // This significantly improves performance for fixed patterns
+        match &pattern {
+            WipePattern::Fixed(byte) => {
+                self.write_buffer.fill(*byte);
+            }
+            WipePattern::Gutmann(patterns) => {
+                let pattern_idx = (pass - 1) % patterns.len();
+                if patterns[pattern_idx].len() == 1 {
+                    self.write_buffer.fill(patterns[pattern_idx][0]);
+                } else {
+                    for (i, byte) in self.write_buffer.iter_mut().enumerate() {
+                        *byte = patterns[pattern_idx][i % patterns[pattern_idx].len()];
                     }
                 }
             }
+            WipePattern::Random => {
+                // For random patterns, we'll generate fresh random data each iteration
+                // to avoid predictable patterns
+            }
+        }
 
-            writer
-                .write_all(&buffer[..write_size])
+        let mut total_written = 0u64;
+        let mut last_progress_time = Instant::now();
+        let mut last_bytes = 0u64;
+
+        // Optimize progress reporting frequency based on mode
+        let progress_interval = if self.fast_mode {
+            Duration::from_secs(2) // Much less frequent in fast mode
+        } else if self.json_mode {
+            Duration::from_millis(500)
+        } else {
+            Duration::from_millis(200)
+        };
+
+        // Main write loop - optimized for performance
+        while total_written < self.size {
+            let write_size = std::cmp::min(
+                self.write_buffer.len(),
+                (self.size - total_written) as usize,
+            );
+
+            // Generate fresh random data only when needed
+            if matches!(pattern, WipePattern::Random) {
+                thread_rng().fill_bytes(&mut self.write_buffer[..write_size]);
+            }
+
+            // Direct write to file without BufWriter to avoid double buffering overhead
+            self.file
+                .write_all(&self.write_buffer[..write_size])
                 .with_context(|| "Failed to write data")?;
 
             total_written += write_size as u64;
 
-            // Update progress
-            if let Some(ref pb) = pb {
-                pb.set_position(total_written);
-            }
+            // Update progress less frequently to reduce overhead
+            let now = Instant::now();
+            let should_update_progress =
+                now.duration_since(last_progress_time) >= progress_interval;
 
-            // Emit JSON progress events periodically
-            if self.json_mode {
-                let progress_interval = if self.fast_mode {
-                    Duration::from_millis(500) // Less frequent in fast mode
-                } else {
-                    Duration::from_millis(100)
-                };
+            if should_update_progress {
+                // Update progress bar
+                if let Some(ref pb) = pb {
+                    pb.set_position(total_written);
+                }
 
-                let now = Instant::now();
-                if now.duration_since(last_progress_time) >= progress_interval {
+                // Emit JSON progress events
+                if self.json_mode {
                     let elapsed = now.duration_since(last_progress_time);
                     let bytes_diff = total_written - last_bytes;
                     let bytes_per_second = if elapsed.as_secs_f64() > 0.0 {
@@ -357,36 +381,32 @@ impl WipeContext {
                         percent: (total_written as f64 / self.size as f64) * 100.0,
                         bytes_per_second,
                     });
-
-                    last_progress_time = now;
-                    last_bytes = total_written;
                 }
-            }
 
-            // Add small delay for demo visualization (only in non-JSON mode and non-fast mode)
-            if !self.json_mode && !self.fast_mode {
-                std::thread::sleep(Duration::from_millis(1));
+                last_progress_time = now;
+                last_bytes = total_written;
             }
         }
 
-        writer.flush().with_context(|| "Failed to flush buffer")?;
-
-        // Platform-specific sync operations
-        #[cfg(unix)]
-        unsafe {
-            libc::fsync(writer.get_ref().as_raw_fd());
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::AsRawHandle;
-            use winapi::um::{fileapi::FlushFileBuffers, handleapi::INVALID_HANDLE_VALUE};
-
+        // Sync only at the end of each pass, not during writes
+        // This provides a good balance between performance and data integrity
+        if !self.fast_mode {
+            #[cfg(unix)]
             unsafe {
-                use winapi::ctypes::c_void;
-                let handle = writer.get_ref().as_raw_handle() as *mut c_void;
-                if handle != INVALID_HANDLE_VALUE as *mut c_void {
-                    FlushFileBuffers(handle);
+                libc::fsync(self.file.as_raw_fd());
+            }
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::io::AsRawHandle;
+                use winapi::um::{fileapi::FlushFileBuffers, handleapi::INVALID_HANDLE_VALUE};
+
+                unsafe {
+                    use winapi::ctypes::c_void;
+                    let handle = self.file.as_raw_handle() as *mut c_void;
+                    if handle != INVALID_HANDLE_VALUE as *mut c_void {
+                        FlushFileBuffers(handle);
+                    }
                 }
             }
         }

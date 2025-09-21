@@ -55,6 +55,13 @@ pub enum ProgressEvent {
     Info {
         message: String,
     },
+    #[serde(rename = "interrupted")]
+    Interrupted {
+        message: String,
+        pass: Option<usize>,
+        total_passes: Option<usize>,
+        percent_complete: Option<f64>,
+    },
 }
 
 pub fn emit_event(event: &ProgressEvent) -> io::Result<()> {

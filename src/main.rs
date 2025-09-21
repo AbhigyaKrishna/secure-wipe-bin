@@ -92,7 +92,9 @@ fn main() -> Result<()> {
 
     if args.demo {
         std::fs::remove_file(&target_path).with_context(|| "Failed to clean up demo file")?;
-        println!("Demo file cleaned up");
+        if !args.json {
+            println!("Demo file cleaned up");
+        }
     }
 
     Ok(())
