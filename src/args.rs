@@ -55,6 +55,10 @@ pub struct Args {
     #[arg(long)]
     pub json: bool,
 
+    /// Fast mode - disable O_SYNC for better performance (less safe)
+    #[arg(long)]
+    pub fast: bool,
+
     /// List available drives and partitions instead of wiping
     #[arg(short, long)]
     pub list_drives: bool,

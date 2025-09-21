@@ -24,6 +24,75 @@ use std::os::unix::fs::OpenOptionsExt;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 
+/// Get optimal buffer size based on device type and available memory
+fn get_optimal_buffer_size(is_block_device: bool, requested_size: usize) -> usize {
+    // If user specified a size, use it
+    if requested_size != 1024 {
+        return requested_size;
+    }
+
+    // Try to determine available system memory
+    let system_memory_kb = get_available_memory_kb().unwrap_or(8 * 1024 * 1024); // Default to 8GB
+
+    // Calculate optimal buffer size
+    let optimal_kb = if is_block_device {
+        // For block devices, use larger buffers (2-16MB)
+        let max_buffer = std::cmp::min(16 * 1024, system_memory_kb / 100); // Max 16MB or 1% of system memory
+        std::cmp::max(2 * 1024, max_buffer) // Min 2MB
+    } else {
+        // For files, use moderate buffers (1-8MB)
+        let max_buffer = std::cmp::min(8 * 1024, system_memory_kb / 200); // Max 8MB or 0.5% of system memory
+        std::cmp::max(1024, max_buffer) // Min 1MB
+    };
+
+    optimal_kb
+}
+
+/// Get available system memory in KB
+fn get_available_memory_kb() -> Option<usize> {
+    #[cfg(unix)]
+    {
+        // Try to read /proc/meminfo on Linux
+        if let Ok(contents) = std::fs::read_to_string("/proc/meminfo") {
+            for line in contents.lines() {
+                if line.starts_with("MemAvailable:") {
+                    if let Some(kb_str) = line.split_whitespace().nth(1) {
+                        if let Ok(kb) = kb_str.parse::<usize>() {
+                            return Some(kb);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: use sysconf on Unix systems
+        unsafe {
+            let pages = libc::sysconf(libc::_SC_AVPHYS_PAGES);
+            let page_size = libc::sysconf(libc::_SC_PAGE_SIZE);
+            if pages > 0 && page_size > 0 {
+                return Some((pages * page_size / 1024) as usize);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        use winapi::um::sysinfoapi::{
+            GetPhysicallyInstalledSystemMemory, GlobalMemoryStatusEx, MEMORYSTATUSEX,
+        };
+
+        unsafe {
+            let mut mem_status: MEMORYSTATUSEX = std::mem::zeroed();
+            mem_status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+
+            if GlobalMemoryStatusEx(&mut mem_status) != 0 {
+                return Some((mem_status.ullAvailPhys / 1024) as usize);
+            }
+        }
+    }
+
+    None
+}
 
 #[cfg(windows)]
 use winapi::{
@@ -41,6 +110,7 @@ pub struct WipeContext {
     algorithm: WipeAlgorithm,
     passes: usize,
     json_mode: bool,
+    fast_mode: bool,
     #[allow(dead_code)]
     is_block_device: bool,
 }
@@ -53,16 +123,31 @@ impl WipeContext {
         buffer_size: usize,
         json_mode: bool,
         is_block_device: bool,
+        fast_mode: bool,
     ) -> Result<Self> {
         let mut options = OpenOptions::new();
         options.write(true).read(true);
 
         #[cfg(unix)]
-        options.custom_flags(libc::O_SYNC); // Force synchronous writes
+        {
+            let mut flags = 0;
+            if !fast_mode {
+                flags |= libc::O_SYNC; // Force synchronous writes unless in fast mode
+            }
+            if is_block_device {
+                flags |= libc::O_DIRECT; // Use direct I/O for block devices
+            }
+            if flags != 0 {
+                options.custom_flags(flags);
+            }
+        }
 
         let file = options
             .open(path)
             .with_context(|| format!("Failed to open file or device: {}", path.display()))?;
+
+        // Get optimal buffer size
+        let optimal_buffer_size = get_optimal_buffer_size(is_block_device, buffer_size);
 
         // For block devices, get size using platform-specific methods
         let size = if is_block_device {
@@ -124,10 +209,11 @@ impl WipeContext {
         Ok(WipeContext {
             file,
             size,
-            buffer_size,
+            buffer_size: optimal_buffer_size,
             algorithm,
             passes,
             json_mode,
+            fast_mode,
             is_block_device,
         })
     }
@@ -247,8 +333,14 @@ impl WipeContext {
 
             // Emit JSON progress events periodically
             if self.json_mode {
+                let progress_interval = if self.fast_mode {
+                    Duration::from_millis(500) // Less frequent in fast mode
+                } else {
+                    Duration::from_millis(100)
+                };
+
                 let now = Instant::now();
-                if now.duration_since(last_progress_time) >= Duration::from_millis(100) {
+                if now.duration_since(last_progress_time) >= progress_interval {
                     let elapsed = now.duration_since(last_progress_time);
                     let bytes_diff = total_written - last_bytes;
                     let bytes_per_second = if elapsed.as_secs_f64() > 0.0 {
@@ -271,8 +363,8 @@ impl WipeContext {
                 }
             }
 
-            // Add small delay for demo visualization (only in non-JSON mode)
-            if !self.json_mode {
+            // Add small delay for demo visualization (only in non-JSON mode and non-fast mode)
+            if !self.json_mode && !self.fast_mode {
                 std::thread::sleep(Duration::from_millis(1));
             }
         }

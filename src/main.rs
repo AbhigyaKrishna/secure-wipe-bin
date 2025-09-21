@@ -79,6 +79,7 @@ fn main() -> Result<()> {
         args.buffer_size,
         args.json,
         is_block_device,
+        args.fast,
     )?;
 
     wipe_context.wipe()?;
@@ -115,7 +116,15 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         std::fs::write(temp_file.path(), b"test data").unwrap();
 
-        let result = WipeContext::new(temp_file.path(), WipeAlgorithm::Zero, 1, 1024, false, false);
+        let result = WipeContext::new(
+            temp_file.path(),
+            WipeAlgorithm::Zero,
+            1,
+            1024,
+            false,
+            false,
+            false,
+        );
         assert!(result.is_ok());
     }
 }
