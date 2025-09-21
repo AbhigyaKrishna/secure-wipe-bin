@@ -20,6 +20,9 @@ sudo ./secure-wipe-bin --json --target /dev/sda1 --algorithm gutmann --force
 # List available drives in JSON format
 ./secure-wipe-bin --list-drives --json
 
+# Get system information in JSON format
+./secure-wipe-bin --system-info --json
+
 # Demo mode (creates temporary file)
 ./secure-wipe-bin --json --demo --demo-size 100 --algorithm random --force
 ```
@@ -52,6 +55,53 @@ The `--list-drives` flag can be combined with `--json` to get machine-readable d
       "size_bytes": null,
       "size_gb": 100.0,
       "description": "/dev/sda1 - part 100G"
+    }
+  ]
+}
+```
+
+## System Information
+
+The `--system-info` flag can be combined with `--json` to get machine-readable system information:
+
+```bash
+# Get system info in JSON format
+./secure-wipe-bin --system-info --json
+```
+
+### System Info JSON Output
+
+```json
+{
+  "os_name": "Linux",
+  "os_version": "Linux version 6.5.0-generic",
+  "architecture": "x86_64",
+  "hostname": "workstation",
+  "username": "user",
+  "total_memory_bytes": 16777216000,
+  "available_memory_bytes": 8388608000,
+  "cpu_info": {
+    "logical_cores": 8,
+    "physical_cores": 4,
+    "model_name": "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz",
+    "frequency_mhz": 3700
+  },
+  "storage_devices": [
+    {
+      "name": "sda1",
+      "device_path": "/dev/sda1",
+      "size_bytes": 1000204886016,
+      "device_type": "block",
+      "mount_point": "/",
+      "file_system": "ext4"
+    },
+    {
+      "name": "sdb1",
+      "device_path": "/dev/sdb1",
+      "size_bytes": 2000398934016,
+      "device_type": "block",
+      "mount_point": "/home",
+      "file_system": "ext4"
     }
   ]
 }
